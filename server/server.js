@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -11,23 +9,10 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
-
-// Configuration from environment variables
-const config = {
-  port: process.env.PORT || 3001,
-  autoSaveInterval: parseInt(process.env.AUTO_SAVE_INTERVAL) || 120000,
-  roomHistoryLimit: parseInt(process.env.ROOM_HISTORY_LIMIT) || 1000,
-  chatMessageLimit: parseInt(process.env.CHAT_MESSAGE_LIMIT) || 100,
-  roomCleanupInterval: parseInt(process.env.ROOM_CLEANUP_INTERVAL) || 300000,
-  saveDirectory: process.env.SAVE_DIRECTORY || './saved-rooms',
-  maxConnectionsPerRoom: parseInt(process.env.MAX_CONNECTIONS_PER_ROOM) || 50,
-  maxTotalRooms: parseInt(process.env.MAX_TOTAL_ROOMS) || 1000,
-  logLevel: process.env.LOG_LEVEL || 'info'
-};
 
 // Middleware
 app.use(cors());
@@ -41,7 +26,6 @@ const userColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA
 class Room {
   constructor(id) {
     this.id = id;
-    this.code = '';
     this.users = new Map();
     this.cursors = new Map();
     this.history = [];
@@ -77,22 +61,21 @@ class Room {
     this.cursors.delete(socketId);
   }
 
-  updateCode(content, operation) {
-    const activeFile = this.files.get(this.activeFile);
-    if (activeFile) {
-      activeFile.content = content;
+  updateCode(fileName, content) {
+    const file = this.files.get(fileName);
+    if (file) {
+      file.content = content;
       
       // Add to history for replay feature
       this.history.push({
         timestamp: Date.now(),
-        operation,
         content,
-        file: this.activeFile
+        fileName
       });
 
-      // Keep history limited to configurable limit
-      if (this.history.length > config.roomHistoryLimit) {
-        this.history = this.history.slice(-config.roomHistoryLimit);
+      // Keep history limited to last 1000 operations
+      if (this.history.length > 1000) {
+        this.history = this.history.slice(-1000);
       }
     }
   }
@@ -111,9 +94,9 @@ class Room {
       timestamp: Date.now()
     });
 
-    // Keep chat limited to configurable limit
-    if (this.chat.length > config.chatMessageLimit) {
-      this.chat = this.chat.slice(-config.chatMessageLimit);
+    // Keep chat limited to last 100 messages
+    if (this.chat.length > 100) {
+      this.chat = this.chat.slice(-100);
     }
   }
 
@@ -150,10 +133,8 @@ class Room {
   }
 
   getState() {
-    const activeFile = this.files.get(this.activeFile);
     return {
       roomId: this.id,
-      code: activeFile ? activeFile.content : '',
       activeFile: this.activeFile,
       files: Array.from(this.files.values()),
       users: Array.from(this.users.values()),
@@ -169,24 +150,6 @@ function getOrCreateRoom(roomId) {
     rooms.set(roomId, new Room(roomId));
   }
   return rooms.get(roomId);
-}
-
-function transformOperation(op, otherOps) {
-  // Basic operational transformation
-  // This is a simplified version - in production, you'd want a more robust OT system
-  let transformedOp = { ...op };
-  
-  for (const otherOp of otherOps) {
-    if (otherOp.timestamp < op.timestamp) {
-      if (otherOp.type === 'insert' && otherOp.position <= transformedOp.position) {
-        transformedOp.position += otherOp.text.length;
-      } else if (otherOp.type === 'delete' && otherOp.position < transformedOp.position) {
-        transformedOp.position -= Math.min(otherOp.length, transformedOp.position - otherOp.position);
-      }
-    }
-  }
-  
-  return transformedOp;
 }
 
 // Socket.IO connection handling
@@ -219,7 +182,7 @@ io.on('connection', (socket) => {
     console.log(`User ${currentUser.username} joined room ${roomId}`);
   });
 
-  // Handle code changes
+  // FIXED: Handle code changes properly
   socket.on('code-change', (data) => {
     if (!currentRoom) return;
     
@@ -227,26 +190,19 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const { content, operation } = data;
+    const fileName = operation?.fileName || room.activeFile;
     
-    // Apply operational transformation if needed
-    const recentOps = room.history.slice(-10); // Check last 10 operations
-    const transformedOp = transformOperation(operation, recentOps);
-    
-    room.updateCode(content, {
-      ...transformedOp,
-      userId: socket.id,
-      username: currentUser.username
-    });
+    room.updateCode(fileName, content);
 
     // Broadcast to all other users in the room
     socket.to(currentRoom).emit('code-update', {
       content,
-      operation: transformedOp,
+      fileName,
       user: currentUser
     });
   });
 
-  // Handle cursor position updates
+  // FIXED: Handle cursor position updates properly
   socket.on('cursor-change', (cursor) => {
     if (!currentRoom) return;
     
@@ -264,7 +220,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Handle file operations
+  // FIXED: Handle file operations properly
   socket.on('switch-file', (fileName) => {
     if (!currentRoom) return;
     
@@ -279,6 +235,7 @@ io.on('connection', (socket) => {
         language: file.language
       });
       
+      // Notify others about the active file change
       socket.to(currentRoom).emit('active-file-changed', fileName);
     }
   });
@@ -313,7 +270,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle chat messages
+  // FIXED: Handle chat messages properly
   socket.on('chat-message', (message) => {
     if (!currentRoom || !currentUser) return;
     
@@ -325,7 +282,8 @@ io.on('connection', (socket) => {
       userId: socket.id,
       username: currentUser.username,
       color: currentUser.color,
-      message: message.trim()
+      message: typeof message === 'string' ? message.trim() : message?.message?.trim() || '',
+      timestamp: Date.now()
     };
 
     room.addChatMessage(chatMessage);
@@ -382,7 +340,7 @@ io.on('connection', (socket) => {
 
 // Auto-save functionality
 const autoSave = async () => {
-  const saveDir = path.join(__dirname, config.saveDirectory);
+  const saveDir = path.join(__dirname, 'saved-rooms');
   
   try {
     await fs.mkdir(saveDir, { recursive: true });
@@ -411,8 +369,8 @@ const autoSave = async () => {
   }
 };
 
-// Run auto-save at configured interval
-setInterval(autoSave, config.autoSaveInterval);
+// Run auto-save every 2 minutes
+setInterval(autoSave, 2 * 60 * 1000);
 
 // REST API endpoints
 app.get('/api/rooms', (req, res) => {
@@ -470,11 +428,10 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-const PORT = config.port;
+const PORT = process.env.PORT || 3001;
 
 server.listen(PORT, () => {
   console.log(`🚀 Collaborative Code Editor Server running on port ${PORT}`);
-  console.log(`📁 Auto-save enabled (every ${config.autoSaveInterval/1000} seconds)`);
+  console.log(`📁 Auto-save enabled (every 2 minutes)`);
   console.log(`🔄 WebSocket ready for real-time collaboration`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });

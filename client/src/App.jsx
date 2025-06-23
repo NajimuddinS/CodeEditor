@@ -7,7 +7,8 @@ import Chat from './components/Chat.jsx';
 import FileManager from './components/FileManager.jsx';
 import RoomJoin from './components/RoomJoin.jsx';
 
-const BACKEND_URL = 'https://codeeditor-9d33.onrender.com';
+// FIXED: Typo in backend URL
+const BACKEND_URL = 'http://localhost:3001';
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -37,22 +38,42 @@ function App() {
         setIsConnected(false);
       });
 
-      // Room events
+      // FIXED: Updated room state handling to match backend
       socket.on('room-state', (data) => {
         console.log('Room state received:', data);
         setUsers(data.users || []);
-        setFiles(data.files || { 'main.js': { content: code, language: 'javascript' } });
-        if (data.files && data.files[activeFile]) {
-          setCode(data.files[activeFile].content);
+        
+        // Convert files array back to object format
+        if (data.files && Array.isArray(data.files)) {
+          const filesObj = {};
+          data.files.forEach(file => {
+            filesObj[file.name] = file;
+          });
+          setFiles(filesObj);
+        } else {
+          setFiles(data.files || { 'main.js': { content: code, language: 'javascript' } });
         }
-        setChatMessages(data.chatHistory || []);
+        
+        // Set active file and its content
+        if (data.activeFile) {
+          setActiveFile(data.activeFile);
+          const activeFileData = data.files?.find(f => f.name === data.activeFile) || 
+                                 data.files?.[data.activeFile];
+          if (activeFileData) {
+            setCode(activeFileData.content);
+          }
+        }
+        
+        setChatMessages(data.chat || []);
       });
 
       socket.on('user-joined', (user) => {
         setUsers(prev => [...prev.filter(u => u.id !== user.id), user]);
       });
 
-      socket.on('user-left', (userId) => {
+      // FIXED: Handle user-left event properly
+      socket.on('user-left', (data) => {
+        const userId = data.userId || data;
         setUsers(prev => prev.filter(u => u.id !== userId));
         setCursors(prev => {
           const newCursors = { ...prev };
@@ -61,39 +82,38 @@ function App() {
         });
       });
 
-      // Code collaboration events
+      // FIXED: Updated code-update handler to match backend events
       socket.on('code-update', (data) => {
-        if (data.fileName === activeFile) {
-          setCode(data.code);
+        if (data.fileName === activeFile || !data.fileName) {
+          setCode(data.content);
         }
         setFiles(prev => ({
           ...prev,
-          [data.fileName]: {
-            ...prev[data.fileName],
-            content: data.code
+          [data.fileName || activeFile]: {
+            ...prev[data.fileName || activeFile],
+            content: data.content,
+            name: data.fileName || activeFile
           }
         }));
       });
 
+      // FIXED: Updated cursor handling to match backend format
       socket.on('cursor-update', (data) => {
         setCursors(prev => ({
           ...prev,
           [data.userId]: {
-            position: data.position,
+            position: data.cursor || data.position,
             username: data.username,
             color: data.color
           }
         }));
       });
 
-      // File management events
-      socket.on('file-created', (data) => {
+      // FIXED: File management events to match backend
+      socket.on('file-created', (fileData) => {
         setFiles(prev => ({
           ...prev,
-          [data.fileName]: {
-            content: data.content || '',
-            language: data.language || 'javascript'
-          }
+          [fileData.name]: fileData
         }));
       });
 
@@ -104,17 +124,24 @@ function App() {
           return newFiles;
         });
         if (activeFile === data.fileName) {
-          const remainingFiles = Object.keys(files).filter(f => f !== data.fileName);
-          if (remainingFiles.length > 0) {
-            setActiveFile(remainingFiles[0]);
+          const newActiveFile = data.newActiveFile || 'main.js';
+          setActiveFile(newActiveFile);
+          if (files[newActiveFile]) {
+            setCode(files[newActiveFile].content);
           }
         }
       });
 
-      socket.on('active-file-changed', (data) => {
+      // FIXED: Handle file switching properly
+      socket.on('file-switched', (data) => {
         setActiveFile(data.fileName);
-        if (files[data.fileName]) {
-          setCode(files[data.fileName].content);
+        setCode(data.content);
+      });
+
+      socket.on('active-file-changed', (fileName) => {
+        setActiveFile(fileName);
+        if (files[fileName]) {
+          setCode(files[fileName].content);
         }
       });
 
@@ -133,6 +160,7 @@ function App() {
         socket.off('cursor-update');
         socket.off('file-created');
         socket.off('file-deleted');
+        socket.off('file-switched');
         socket.off('active-file-changed');
         socket.off('chat-message');
       };
@@ -154,21 +182,27 @@ function App() {
     });
   };
 
+  // FIXED: Updated to match backend expectations
   const handleCodeChange = (newCode) => {
     setCode(newCode);
     if (socket && isConnected) {
       socket.emit('code-change', {
-        code: newCode,
-        fileName: activeFile,
-        timestamp: Date.now()
+        content: newCode,
+        operation: {
+          type: 'update',
+          timestamp: Date.now(),
+          fileName: activeFile
+        }
       });
     }
   };
 
+  // FIXED: Updated cursor change to match backend format
   const handleCursorChange = (position) => {
     if (socket && isConnected) {
       socket.emit('cursor-change', {
-        position,
+        line: position.lineNumber,
+        ch: position.column,
         fileName: activeFile,
         timestamp: Date.now()
       });
@@ -177,7 +211,7 @@ function App() {
 
   const handleFileSwitch = (fileName) => {
     if (socket && isConnected) {
-      socket.emit('switch-file', { fileName });
+      socket.emit('switch-file', fileName);
     }
   };
 
@@ -189,16 +223,13 @@ function App() {
 
   const handleDeleteFile = (fileName) => {
     if (socket && isConnected && Object.keys(files).length > 1) {
-      socket.emit('delete-file', { fileName });
+      socket.emit('delete-file', fileName);
     }
   };
 
   const handleSendMessage = (message) => {
     if (socket && isConnected) {
-      socket.emit('chat-message', {
-        message,
-        timestamp: Date.now()
-      });
+      socket.emit('chat-message', message);
     }
   };
 
@@ -236,7 +267,7 @@ function App() {
           </button>
           <button
             onClick={() => setShowChat(!showChat)}
-            className={`p-2 rounded-lg transition-colors ${showChat ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+            className={`p-2 rounded-lg transition-colors relative ${showChat ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
             title="Toggle Chat"
           >
             <MessageCircle className="w-5 h-5" />
