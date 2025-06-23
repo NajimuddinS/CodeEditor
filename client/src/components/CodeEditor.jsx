@@ -38,31 +38,35 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
 
   // Update cursor decorations when cursors change
   useEffect(() => {
-    if (editorRef.current && monacoRef.current) {
+    if (editorRef.current && monacoRef.current && cursors) {
       // Clear previous decorations
       decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
 
       // Create new decorations for other users' cursors
       const newDecorations = Object.entries(cursors)
         .filter(([userId, cursor]) => {
-          // Ensure cursor and cursor.position are defined
-          return cursor && cursor.position && 
-                 typeof cursor.position.lineNumber === 'number' && 
-                 typeof cursor.position.column === 'number';
+          // Check if cursor has the required properties
+          // The cursor structure from server: { lineNumber, column, userId, username, color }
+          return cursor && 
+                 typeof cursor.lineNumber === 'number' && 
+                 typeof cursor.column === 'number' &&
+                 cursor.lineNumber > 0 && 
+                 cursor.column > 0;
         })
         .map(([userId, cursor]) => {
           const colors = [
             '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
             '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43'
           ];
-          const color = colors[userId.charCodeAt(0) % colors.length];
+          // Use cursor.color if available, otherwise generate from userId
+          const color = cursor.color || colors[userId.charCodeAt(0) % colors.length];
 
           return {
             range: new monacoRef.current.Range(
-              cursor.position.lineNumber,
-              cursor.position.column,
-              cursor.position.lineNumber,
-              cursor.position.column
+              cursor.lineNumber,
+              cursor.column,
+              cursor.lineNumber,
+              cursor.column
             ),
             options: {
               className: 'cursor-decoration',
