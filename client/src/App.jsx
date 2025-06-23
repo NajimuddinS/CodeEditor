@@ -8,7 +8,7 @@ import FileManager from "./components/FileManager.jsx";
 import RoomJoin from "./components/RoomJoin.jsx";
 
 // FIXED: Typo in backend URL
-const BACKEND_URL = "http://localhost:3001";
+const BACKEND_URL = "https://codeeditor-9d33.onrender.com";
 
 function App() {
   const [socket, setSocket] = useState(null);
