@@ -43,33 +43,40 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
       decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
 
       // Create new decorations for other users' cursors
-      const newDecorations = Object.entries(cursors).map(([userId, cursor]) => {
-        const colors = [
-          '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
-          '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43'
-        ];
-        const color = colors[userId.charCodeAt(0) % colors.length];
+      const newDecorations = Object.entries(cursors)
+        .filter(([userId, cursor]) => {
+          // Ensure cursor and cursor.position are defined
+          return cursor && cursor.position && 
+                 typeof cursor.position.lineNumber === 'number' && 
+                 typeof cursor.position.column === 'number';
+        })
+        .map(([userId, cursor]) => {
+          const colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
+            '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43'
+          ];
+          const color = colors[userId.charCodeAt(0) % colors.length];
 
-        return {
-          range: new monacoRef.current.Range(
-            cursor.position.lineNumber,
-            cursor.position.column,
-            cursor.position.lineNumber,
-            cursor.position.column
-          ),
-          options: {
-            className: 'cursor-decoration',
-            beforeContentClassName: 'cursor-before',
-            glyphMarginClassName: 'cursor-glyph',
-            stickiness: monacoRef.current.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-            after: {
-              content: ` ${cursor.username}`,
-              inlineClassName: 'cursor-label',
-              inlineClassNameAffectsLetterSpacing: false,
+          return {
+            range: new monacoRef.current.Range(
+              cursor.position.lineNumber,
+              cursor.position.column,
+              cursor.position.lineNumber,
+              cursor.position.column
+            ),
+            options: {
+              className: 'cursor-decoration',
+              beforeContentClassName: 'cursor-before',
+              glyphMarginClassName: 'cursor-glyph',
+              stickiness: monacoRef.current.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              after: {
+                content: ` ${cursor.username || 'Anonymous'}`,
+                inlineClassName: 'cursor-label',
+                inlineClassNameAffectsLetterSpacing: false,
+              }
             }
-          }
-        };
-      });
+          };
+        });
 
       decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, newDecorations);
     }
