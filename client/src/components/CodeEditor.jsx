@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import Editor from '@monaco-editor/react';
 
-const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, cursors }, ref) => {
+const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, cursors, currentUser }, ref) => {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationsRef = useRef([]);
+  const editingStatusRef = useRef({});
 
   useImperativeHandle(ref, () => ({
     getEditor: () => editorRef.current,
@@ -33,6 +34,12 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
       if (onChange) {
         onChange(editor.getValue());
       }
+      
+      // Mark current user as editing
+      if (currentUser) {
+        editingStatusRef.current[currentUser] = Date.now();
+        updateEditingDecorations();
+      }
     });
   };
 
@@ -45,7 +52,6 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
       // Create new decorations for other users' cursors
       const newDecorations = Object.entries(cursors)
         .filter(([userId, cursor]) => {
-          // Ensure cursor and cursor.position are defined
           return cursor && cursor.position && 
                  typeof cursor.position.lineNumber === 'number' && 
                  typeof cursor.position.column === 'number';
@@ -82,6 +88,57 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
     }
   }, [cursors]);
 
+  // Update editing status decorations
+  const updateEditingDecorations = () => {
+    if (!editorRef.current || !monacoRef.current) return;
+
+    // Clear old editing decorations
+    const currentDecorations = editorRef.current.getModel().getAllDecorations();
+    const editingDecorations = currentDecorations.filter(
+      d => d.options.glyphMarginClassName === 'editing-status'
+    );
+    editorRef.current.deltaDecorations(
+      editingDecorations.map(d => d.id),
+      []
+    );
+
+    // Add new editing decorations
+    const now = Date.now();
+    const activeEditors = Object.entries(editingStatusRef.current)
+      .filter(([_, timestamp]) => now - timestamp < 3000) // 3 seconds threshold
+      .map(([username]) => username);
+
+    if (activeEditors.length > 0) {
+      const firstLineRange = new monacoRef.current.Range(1, 1, 1, 1);
+      editorRef.current.deltaDecorations([], [
+        {
+          range: firstLineRange,
+          options: {
+            glyphMarginClassName: 'editing-status',
+            glyphMargin: {
+              position: monacoRef.current.editor.GlyphMarginLane.Left,
+              text: `👩‍💻 ${activeEditors.join(', ')} ${activeEditors.length > 1 ? 'are' : 'is'} editing...`,
+            },
+            stickiness: monacoRef.current.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          }
+        }
+      ]);
+    }
+
+    // Clean up old editing status
+    Object.keys(editingStatusRef.current).forEach(username => {
+      if (now - editingStatusRef.current[username] > 3000) {
+        delete editingStatusRef.current[username];
+      }
+    });
+  };
+
+  // Periodically update editing decorations
+  useEffect(() => {
+    const interval = setInterval(updateEditingDecorations, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="h-full relative">
       <style jsx>{`
@@ -96,6 +153,11 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
           font-size: 12px;
           font-weight: 500;
           margin-left: 4px;
+        }
+        .editing-status {
+          color: #4ECDC4;
+          font-size: 12px;
+          padding-left: 8px;
         }
       `}</style>
       
@@ -147,7 +209,8 @@ const CodeEditor = forwardRef(({ code, language, onChange, onCursorChange, curso
           contextmenu: true,
           mouseWheelZoom: true,
           multiCursorModifier: 'ctrlCmd',
-          accessibilitySupport: 'auto'
+          accessibilitySupport: 'auto',
+          glyphMargin: true // Make sure glyph margin is enabled
         }}
       />
     </div>

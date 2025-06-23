@@ -6,6 +6,17 @@
   box-sizing: border-box;
 }
 
+.monaco-editor .glyph-margin {
+  background-color: rgba(30, 41, 59, 0.5) !important;
+}
+
+.editing-status {
+  color: #4ECDC4;
+  font-size: 12px;
+  padding-left: 8px;
+  white-space: nowrap;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',

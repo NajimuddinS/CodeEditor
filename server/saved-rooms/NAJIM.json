@@ -1,0 +1,13 @@
+{
+  "id": "NAJIM",
+  "files": {
+    "main.js": {
+      "name": "main.js",
+      "content": "// Welcome to the collaborative code editor!\n// Start typing to see real-time collaboration in action\n\nconsole.log(\"Hello, W\nASD",
+      "language": "javascript"
+    }
+  },
+  "activeFile": "main.js",
+  "lastSaved": 1750678154521,
+  "userCount": 2
+}
